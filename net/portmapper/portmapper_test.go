@@ -32,12 +32,12 @@ func TestClientProbe(t *testing.T) {
 		t.Skip("skipping test without HIT_NETWORK=1")
 	}
 	c := NewClient(t.Logf, nil)
-	for i := 0; i < 2; i++ {
+	for i := 0; i < 3; i++ {
 		if i > 0 {
 			time.Sleep(100 * time.Millisecond)
 		}
 		res, err := c.Probe(context.Background())
-		t.Logf("Got: %+v, %v", res, err)
+		t.Logf("Got(t=%dms): %+v, %v", i*100, res, err)
 	}
 }
 

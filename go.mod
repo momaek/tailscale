@@ -28,11 +28,12 @@ require (
 	github.com/pkg/sftp v1.13.0
 	github.com/tailscale/certstore v0.0.0-20210528134328-066c94b793d3
 	github.com/tailscale/depaware v0.0.0-20201214215404-77d1e9757027
+	github.com/tailscale/goupnp v1.0.1-0.20210629175715-39c5a55db683 // indirect
 	github.com/tcnksm/go-httpstat v0.2.0
 	github.com/toqueteos/webbrowser v1.2.0
 	go4.org/mem v0.0.0-20201119185036-c04c5a6ff174
 	golang.org/x/crypto v0.0.0-20210513164829-c07d793c2f9a
-	golang.org/x/net v0.0.0-20210525063256-abc453219eb5
+	golang.org/x/net v0.0.0-20210610132358-84b48f89b13b
 	golang.org/x/sync v0.0.0-20210220032951-036812b2e83c
 	golang.org/x/sys v0.0.0-20210616094352-59db8d763f22
 	golang.org/x/term v0.0.0-20210503060354-a79de5458b56

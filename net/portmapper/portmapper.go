@@ -17,7 +17,6 @@ import (
 	"sync"
 	"time"
 
-	"go4.org/mem"
 	"inet.af/netaddr"
 	"tailscale.com/net/interfaces"
 	"tailscale.com/net/netns"
@@ -66,15 +65,36 @@ type Client struct {
 	pcpSawTime  time.Time // time we last saw PCP was available
 	uPnPSawTime time.Time // time we last saw UPnP was available
 
-	localPort  uint16
-	pmpMapping *pmpMapping // non-nil if we have a PMP mapping
+	localPort uint16
+
+	mapping mapping // non-nil if we have a mapping
+}
+
+// mapping represents a created port-mapping over some protocol.  It specifies a lease duration,
+// how to release the mapping, and whether the map is still valid.
+//
+// After a mapping is created, it should be immutable, and thus reads should be safe across
+// concurrent goroutines.
+type mapping interface {
+	// isCurrent reports whether a mapping is valid now, since most mappings have a lease.
+	// isCurrent() bool
+	// release will attempt to unmap the established port mapping. Will block until completion,
+	// but can be called asynchronously. release should be idempotent, and thus even if called
+	// multiple times should not cause additional side-effects.
+	release(context.Context)
+	// goodUntil will return the lease time that the mapping is valid for.
+	GoodUntil() time.Time
+	// renewAfter returns the earliest time that the mapping should be renewed.
+	RenewAfter() time.Time
+	// externalIPPort indicates what port the mapping can be reached from on the outside.
+	External() netaddr.IPPort
 }
 
 // HaveMapping reports whether we have a current valid mapping.
 func (c *Client) HaveMapping() bool {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	return c.pmpMapping != nil && c.pmpMapping.goodUntil.After(time.Now())
+	return c.mapping != nil && c.mapping.GoodUntil().After(time.Now())
 }
 
 // pmpMapping is an already-created PMP mapping.
@@ -94,9 +114,13 @@ func (m *pmpMapping) externalValid() bool {
 	return !m.external.IP().IsZero() && m.external.Port() != 0
 }
 
+func (p *pmpMapping) GoodUntil() time.Time     { return p.goodUntil }
+func (p *pmpMapping) RenewAfter() time.Time    { return p.renewAfter }
+func (p *pmpMapping) External() netaddr.IPPort { return p.external }
+
 // release does a best effort fire-and-forget release of the PMP mapping m.
-func (m *pmpMapping) release() {
-	uc, err := netns.Listener().ListenPacket(context.Background(), "udp4", ":0")
+func (m *pmpMapping) release(ctx context.Context) {
+	uc, err := netns.Listener().ListenPacket(ctx, "udp4", ":0")
 	if err != nil {
 		return
 	}
@@ -166,7 +190,6 @@ func (c *Client) gatewayAndSelfIP() (gw, myIP netaddr.IP, ok bool) {
 		gw = netaddr.IP{}
 		myIP = netaddr.IP{}
 	}
-
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
@@ -179,11 +202,11 @@ func (c *Client) gatewayAndSelfIP() (gw, myIP netaddr.IP, ok bool) {
 }
 
 func (c *Client) invalidateMappingsLocked(releaseOld bool) {
-	if c.pmpMapping != nil {
+	if c.mapping != nil {
 		if releaseOld {
-			c.pmpMapping.release()
+			go c.mapping.release(context.Background())
 		}
-		c.pmpMapping = nil
+		c.mapping = nil
 	}
 	c.pmpPubIP = netaddr.IP{}
 	c.pmpPubIPTime = time.Time{}
@@ -262,12 +285,12 @@ func (c *Client) GetCachedMappingOrStartCreatingOne() (external netaddr.IPPort, 
 
 	// Do we have an existing mapping that's valid?
 	now := time.Now()
-	if m := c.pmpMapping; m != nil {
-		if now.Before(m.goodUntil) {
-			if now.After(m.renewAfter) {
+	if m := c.mapping; m != nil {
+		if now.Before(m.GoodUntil()) {
+			if now.After(m.RenewAfter()) {
 				c.maybeStartMappingLocked()
 			}
-			return m.external, true
+			return m.External(), true
 		}
 	}
 
@@ -315,9 +338,10 @@ func (c *Client) createOrGetMapping(ctx context.Context) (external netaddr.IPPor
 
 	c.mu.Lock()
 	localPort := c.localPort
+	internalAddr := netaddr.IPPortFrom(myIP, localPort)
 	m := &pmpMapping{
 		gw:       gw,
-		internal: netaddr.IPPortFrom(myIP, localPort),
+		internal: internalAddr,
 	}
 
 	// prevPort is the port we had most previously, if any. We try
@@ -326,13 +350,13 @@ func (c *Client) createOrGetMapping(ctx context.Context) (external netaddr.IPPor
 
 	// Do we have an existing mapping that's valid?
 	now := time.Now()
-	if m := c.pmpMapping; m != nil {
-		if now.Before(m.renewAfter) {
+	if m := c.mapping; m != nil {
+		if now.Before(m.RenewAfter()) {
 			defer c.mu.Unlock()
-			return m.external, nil
+			return m.External(), nil
 		}
 		// The mapping might still be valid, so just try to renew it.
-		prevPort = m.external.Port()
+		prevPort = m.External().Port()
 	}
 
 	// If we just did a Probe (e.g. via netchecker) but didn't
@@ -344,7 +368,8 @@ func (c *Client) createOrGetMapping(ctx context.Context) (external netaddr.IPPor
 	}
 	if c.lastProbe.After(now.Add(-5*time.Second)) && !haveRecentPMP {
 		c.mu.Unlock()
-		return netaddr.IPPort{}, NoMappingError{ErrNoPortMappingServices}
+		// fallback to UPnP portmapping
+		return c.getUPnPPortMapping(ctx, gw, internalAddr, prevPort)
 	}
 
 	c.mu.Unlock()
@@ -381,7 +406,8 @@ func (c *Client) createOrGetMapping(ctx context.Context) (external netaddr.IPPor
 			if ctx.Err() == context.Canceled {
 				return netaddr.IPPort{}, err
 			}
-			return netaddr.IPPort{}, NoMappingError{ErrNoPortMappingServices}
+			// fallback to UPnP portmapping
+			return c.getUPnPPortMapping(ctx, gw, internalAddr, prevPort)
 		}
 		srcu := srci.(*net.UDPAddr)
 		src, ok := netaddr.FromStdAddr(srcu.IP, srcu.Port, srcu.Zone)
@@ -413,7 +439,7 @@ func (c *Client) createOrGetMapping(ctx context.Context) (external netaddr.IPPor
 		if m.externalValid() {
 			c.mu.Lock()
 			defer c.mu.Unlock()
-			c.pmpMapping = m
+			c.mapping = m
 			return m.external, nil
 		}
 	}
@@ -496,9 +522,8 @@ func parsePMPResponse(pkt []byte) (res pmpResponse, ok bool) {
 }
 
 type ProbeResult struct {
-	PCP  bool
-	PMP  bool
-	UPnP bool
+	PCP bool
+	PMP bool
 }
 
 // Probe returns a summary of which port mapping services are
@@ -532,7 +557,6 @@ func (c *Client) Probe(ctx context.Context) (res ProbeResult, err error) {
 
 	pcpAddr := netaddr.IPPortFrom(gw, pcpPort).UDPAddr()
 	pmpAddr := netaddr.IPPortFrom(gw, pmpPort).UDPAddr()
-	upnpAddr := netaddr.IPPortFrom(gw, upnpPort).UDPAddr()
 
 	// Don't send probes to services that we recently learned (for
 	// the same gw/myIP) are available. See
@@ -547,16 +571,11 @@ func (c *Client) Probe(ctx context.Context) (res ProbeResult, err error) {
 	} else {
 		uc.WriteTo(pcpAnnounceRequest(myIP), pcpAddr)
 	}
-	if c.sawUPnPRecently() {
-		res.UPnP = true
-	} else {
-		uc.WriteTo(uPnPPacket, upnpAddr)
-	}
 
 	buf := make([]byte, 1500)
 	pcpHeard := false // true when we get any PCP response
 	for {
-		if pcpHeard && res.PMP && res.UPnP {
+		if pcpHeard && res.PMP {
 			// Nothing more to discover.
 			return res, nil
 		}
@@ -569,13 +588,6 @@ func (c *Client) Probe(ctx context.Context) (res ProbeResult, err error) {
 		}
 		port := addr.(*net.UDPAddr).Port
 		switch port {
-		case upnpPort:
-			if mem.Contains(mem.B(buf[:n]), mem.S(":InternetGatewayDevice:")) {
-				res.UPnP = true
-				c.mu.Lock()
-				c.uPnPSawTime = time.Now()
-				c.mu.Unlock()
-			}
 		case pcpPort: // same as pmpPort
 			if pres, ok := parsePCPResponse(buf[:n]); ok {
 				if pres.OpCode == pcpOpReply|pcpOpAnnounce {
@@ -686,15 +698,5 @@ func parsePCPResponse(b []byte) (res pcpResponse, ok bool) {
 	res.Epoch = binary.BigEndian.Uint32(b[8:])
 	return res, true
 }
-
-const (
-	upnpPort = 1900
-)
-
-var uPnPPacket = []byte("M-SEARCH * HTTP/1.1\r\n" +
-	"HOST: 239.255.255.250:1900\r\n" +
-	"ST: ssdp:all\r\n" +
-	"MAN: \"ssdp:discover\"\r\n" +
-	"MX: 2\r\n\r\n")
 
 var pmpReqExternalAddrPacket = []byte{0, 0} // version 0, opcode 0 = "Public address request"
