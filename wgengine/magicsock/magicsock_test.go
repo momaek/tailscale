@@ -35,6 +35,7 @@ import (
 	"tailscale.com/ipn/ipnstate"
 	"tailscale.com/net/stun/stuntest"
 	"tailscale.com/net/tstun"
+	"tailscale.com/net/uring"
 	"tailscale.com/tailcfg"
 	"tailscale.com/tstest"
 	"tailscale.com/tstest/natlab"
@@ -1508,6 +1509,7 @@ func TestSetNetworkMapChangingNodeKey(t *testing.T) {
 }
 
 func TestRebindStress(t *testing.T) {
+	t.Parallel()
 	conn := newNonLegacyTestConn(t)
 
 	var logBuf bytes.Buffer
@@ -1539,17 +1541,24 @@ func TestRebindStress(t *testing.T) {
 		}
 	}()
 
+	iters := 2000
+	if uring.Available() {
+		// io_uring connection close is slow.
+		// Keep the test short when using it.
+		iters = 20
+	}
+
 	var wg sync.WaitGroup
 	wg.Add(2)
 	go func() {
 		defer wg.Done()
-		for i := 0; i < 2000; i++ {
+		for i := 0; i < iters; i++ {
 			conn.Rebind()
 		}
 	}()
 	go func() {
 		defer wg.Done()
-		for i := 0; i < 2000; i++ {
+		for i := 0; i < iters; i++ {
 			conn.Rebind()
 		}
 	}()
