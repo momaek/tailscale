@@ -19,6 +19,7 @@ import (
 	expect "github.com/google/goexpect"
 	"golang.org/x/crypto/ssh"
 	"inet.af/netaddr"
+	"tailscale.com/types/logger"
 )
 
 const timeout = 15 * time.Second
@@ -47,6 +48,19 @@ func (h Harness) testPing(t *testing.T, ipAddr netaddr.IP, cli *ssh.Client) {
 	})
 }
 
+func getSession(t *testing.T, cli *ssh.Client) *ssh.Session {
+	sess, err := cli.NewSession()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	t.Cleanup(func() {
+		sess.Close()
+	})
+
+	return sess
+}
+
 func (h Harness) testOutgoingTCP(t *testing.T, ipAddr netaddr.IP, cli *ssh.Client) {
 	ctx, cancel := context.WithCancel(context.Background())
 	s := &http.Server{
@@ -63,7 +77,17 @@ func (h Harness) testOutgoingTCP(t *testing.T, ipAddr netaddr.IP, cli *ssh.Clien
 	_, port, _ := net.SplitHostPort(ln.Addr().String())
 	go s.Serve(ln)
 
-	sess, err := cli.NewSession()
+	sess := getSession(t, cli)
+	sess.Stderr = logger.FuncWriter(t.Logf)
+	sess.Stdout = logger.FuncWriter(t.Logf)
+	sess.Run("ip route show table all")
+
+	sess = getSession(t, cli)
+	sess.Stderr = logger.FuncWriter(t.Logf)
+	sess.Stdout = logger.FuncWriter(t.Logf)
+	sess.Run("sysctl -a")
+
+	sess, err = cli.NewSession()
 	if err != nil {
 		t.Fatalf("can't open ssh session: %v", err)
 	}

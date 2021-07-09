@@ -473,6 +473,8 @@ func (h Harness) testDistro(t *testing.T, d Distro, ipm ipMapping) {
 			t.Fatal(err)
 		}
 		defer sess.Close()
+		sess.Stdout = logger.FuncWriter(t.Logf)
+		sess.Stderr = logger.FuncWriter(t.Logf)
 		err = sess.Run("ip -6 route show table 52")
 		if err != nil {
 			t.Fatal(err)
