@@ -583,6 +583,8 @@ github.com/tailscale/goupnp v1.0.1-0.20210629174436-7df6c9efe30c h1:F+pROyGPs+9w
 github.com/tailscale/goupnp v1.0.1-0.20210629174436-7df6c9efe30c/go.mod h1:PdCqy9JzfWMJf1H5UJW2ip33/d4YkoKN0r67yKH1mG8=
 github.com/tailscale/goupnp v1.0.1-0.20210629175715-39c5a55db683 h1:ZXmZQuVebYllEJL/dpttpIDGx723ezC5GJkHIu0YKrM=
 github.com/tailscale/goupnp v1.0.1-0.20210629175715-39c5a55db683/go.mod h1:PdCqy9JzfWMJf1H5UJW2ip33/d4YkoKN0r67yKH1mG8=
+github.com/tailscale/goupnp v1.0.1-0.20210710010003-1cf2d718bbb2 h1:AIJ8AF9O7jBmCwilP0ydwJMIzW5dw48Us8f3hLJhYBY=
+github.com/tailscale/goupnp v1.0.1-0.20210710010003-1cf2d718bbb2/go.mod h1:PdCqy9JzfWMJf1H5UJW2ip33/d4YkoKN0r67yKH1mG8=
 github.com/tcnksm/go-httpstat v0.2.0 h1:rP7T5e5U2HfmOBmZzGgGZjBQ5/GluWUylujl0tJ04I0=
 github.com/tcnksm/go-httpstat v0.2.0/go.mod h1:s3JVJFtQxtBEBC9dwcdTTXS9xFnM3SXAZwPG41aurT8=
 github.com/tdakkota/asciicheck v0.0.0-20200416190851-d7f85be797a2/go.mod h1:yHp0ai0Z9gUljN3o0xMhYJnH/IcvkdTBOX2fmJ93JEM=

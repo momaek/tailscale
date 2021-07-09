@@ -699,7 +699,6 @@ func (rs *reportState) probePortMapServices() {
 		return
 	}
 
-	rs.setOptBool(&rs.report.UPnP, res.UPnP)
 	rs.setOptBool(&rs.report.PMP, res.PMP)
 	rs.setOptBool(&rs.report.PCP, res.PCP)
 }

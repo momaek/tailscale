@@ -5,6 +5,9 @@
 package portmapper
 
 import (
+	"fmt"
+	"net/url"
+
 	"context"
 	"time"
 
@@ -120,34 +123,42 @@ func addAnyPortMapping(
 // getUPnPClients gets a client for interfacing with UPnP, ignoring the underlying protocol for
 // now.
 // Adapted from https://github.com/huin/goupnp/blob/master/GUIDE.md.
-func getUPnPClient(ctx context.Context) (upnpClient, error) {
+func getUPnPClient(ctx context.Context, gw netaddr.IP) (client upnpClient, err error) {
 	tasks, _ := errgroup.WithContext(ctx)
 	// Attempt to connect over the multiple available connection types concurrently,
 	// returning the fastest.
+
+	// XXX: this url seems super brittle? maybe discovery is better but this is faster
+	u, err := url.Parse(fmt.Sprintf("http://%s:5000/rootDesc.xml", gw))
+	if err != nil {
+		return nil, err
+	}
+
+	// TODO need to add a context to each of these function calls
 	var ip1Clients []*internetgateway2.WANIPConnection1
 	var errs [3]error
 	tasks.Go(func() error {
 		var err error
-		ip1Clients, _, err = internetgateway2.NewWANIPConnection1Clients(ctx)
+		ip1Clients, err = internetgateway2.NewWANIPConnection1ClientsByURL(ctx, u)
 		errs[0] = err
 		return nil
 	})
 	var ip2Clients []*internetgateway2.WANIPConnection2
 	tasks.Go(func() error {
 		var err error
-		ip2Clients, _, err = internetgateway2.NewWANIPConnection2Clients(ctx)
+		ip2Clients, err = internetgateway2.NewWANIPConnection2ClientsByURL(ctx, u)
 		errs[1] = err
 		return nil
 	})
 	var ppp1Clients []*internetgateway2.WANPPPConnection1
 	tasks.Go(func() error {
 		var err error
-		ppp1Clients, _, err = internetgateway2.NewWANPPPConnection1Clients(ctx)
+		ppp1Clients, err = internetgateway2.NewWANPPPConnection1ClientsByURL(ctx, u)
 		errs[2] = err
 		return nil
 	})
 
-	err := tasks.Wait()
+	err = tasks.Wait()
 
 	switch {
 	case len(ip2Clients) > 0:
@@ -194,7 +205,7 @@ func (c *Client) getUPnPPortMapping(
 	if ok && oldMapping != nil {
 		client = oldMapping.client
 	} else {
-		client, err = getUPnPClient(ctx)
+		client, err = getUPnPClient(ctx, gw)
 		if err != nil {
 			return netaddr.IPPort{}, NoMappingError{ErrNoPortMappingServices}
 		}

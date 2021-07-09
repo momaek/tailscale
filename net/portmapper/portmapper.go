@@ -204,7 +204,7 @@ func (c *Client) gatewayAndSelfIP() (gw, myIP netaddr.IP, ok bool) {
 func (c *Client) invalidateMappingsLocked(releaseOld bool) {
 	if c.mapping != nil {
 		if releaseOld {
-			go c.mapping.release(context.Background())
+			c.mapping.release(context.Background())
 		}
 		c.mapping = nil
 	}
