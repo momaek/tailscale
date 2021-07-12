@@ -30,6 +30,10 @@ import (
 // The default control plane is the hosted version run by Tailscale.com.
 const DefaultControlURL = "https://controlplane.tailscale.com"
 
+func IsLoginServerSynonym(val interface{}) bool {
+	return val == "https://login.tailscale.com" || val == "https://controlplane.tailscale.com"
+}
+
 // Prefs are the user modifiable settings of the Tailscale node agent.
 type Prefs struct {
 	// ControlURL is the URL of the control server to use.
@@ -403,6 +407,15 @@ func (p *Prefs) ControlURLOrDefault() string {
 		return p.ControlURL
 	}
 	return DefaultControlURL
+}
+
+func (p *Prefs) AdminPageURL() string {
+	url := p.ControlURLOrDefault()
+	if IsLoginServerSynonym(url) {
+		// TODO(crawshaw): In future release, make this https://console.tailscale.com
+		url = "https://login.tailscale.com"
+	}
+	return url
 }
 
 // PrefsFromBytes deserializes Prefs from a JSON blob. If

@@ -307,7 +307,7 @@ func runUp(ctx context.Context, args []string) error {
 		}
 	}
 
-	controlURLChanged := curPrefs.ControlURL != prefs.ControlURL
+	controlURLChanged := curPrefs.ControlURL != prefs.ControlURL || (ipn.IsLoginServerSynonym(curPrefs.ControlURL) && ipn.IsLoginServerSynonym(prefs.ControlURL))
 	if controlURLChanged && st.BackendState == ipn.Running.String() && !upArgs.forceReauth {
 		fatalf("can't change --login-server without --force-reauth")
 	}
@@ -381,7 +381,7 @@ func runUp(ctx context.Context, args []string) error {
 				startLoginInteractive()
 			case ipn.NeedsMachineAuth:
 				printed = true
-				fmt.Fprintf(os.Stderr, "\nTo authorize your machine, visit (as admin):\n\n\t%s/admin/machines\n\n", upArgs.server)
+				fmt.Fprintf(os.Stderr, "\nTo authorize your machine, visit (as admin):\n\n\t%s/admin/machines\n\n", prefs.AdminPageURL())
 			case ipn.Starting, ipn.Running:
 				// Done full authentication process
 				if printed {
@@ -586,7 +586,7 @@ func checkForAccidentalSettingReverts(flagSet *flag.FlagSet, curPrefs, newPrefs 
 		if reflect.DeepEqual(valCur, valNew) {
 			continue
 		}
-		if flagName == "login-server" && isLoginServerSynonym(valCur) && isLoginServerSynonym(valNew) {
+		if flagName == "login-server" && ipn.IsLoginServerSynonym(valCur) && ipn.IsLoginServerSynonym(valNew) {
 			continue
 		}
 		missing = append(missing, fmtFlagValueArg(flagName, valCur))
@@ -633,10 +633,6 @@ func applyImplicitPrefs(prefs, oldPrefs *ipn.Prefs, curUser string) {
 	if prefs.OperatorUser == "" && oldPrefs.OperatorUser == curUser {
 		prefs.OperatorUser = oldPrefs.OperatorUser
 	}
-}
-
-func isLoginServerSynonym(val interface{}) bool {
-	return val == "https://login.tailscale.com" || val == "https://controlplane.tailscale.com"
 }
 
 func flagAppliesToOS(flag, goos string) bool {
